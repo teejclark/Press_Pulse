@@ -7,6 +7,7 @@ library(fitdistrplus)
 library(ismev)
 library(evd)
 library(sensitivity)
+library(lubridate)
 
 # FIT distributions to weather data...just to explore
 # NOTE: might make more sense to use raw data instead of the yearly means...
@@ -75,6 +76,15 @@ hist(ssta_breeding$av)
 fit <- fitdist(ssta_breeding$av, "norm")
 plot(fit)
 gofstat(fit)
+
+##################################################################################################################
+
+# Calculate Autocorrelation?
+
+acf(num_days_25$p_gt25) # not statistically significant
+acf(rain_60$amt_rain) # not statistically significant
+acf(ssta_migration$mean.2) # not statistically significant
+acf(ssta_breeding$av) # not statistically significant
 
 ##################################################################################################################
 
