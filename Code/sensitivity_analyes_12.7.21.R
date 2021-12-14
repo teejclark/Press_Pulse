@@ -593,13 +593,101 @@ for (i in 1:nparsim){
 
 ##################################################################################################################
 
+#### 4) RUN SENSITIVITY ANALYSIS ON DEMOGRAPHIC RATES
+# NOTE: it's an open question how to run these. For now, prefer to run over range of natural variations in demography
+# NOTE: also does partial rank correlation coefficients make sense? I think so, cause you vary everything all at once.
+# NOTE: lastly, 100 parameter combinations, 100 times make sense? maybe up the param combos if possible?
+
+nyears <- 100 # number of years to run stochastic sims
+npars <- 4 # number of parameters to analyze
+nparsim <- 100 # number of parameter combinations (i.e., unique draws from distributions)
+nsims <- 100 # number of simulations per parameter combination
+
+# parameters
+dem <- data.frame(matrix(NA,nparsim,npars))
+colnames(dem) <- c("asurv", "jsurv", "imm", "fec")
+
+# pop growth
+pop <- array(data = NA, dim = c(nyears,nsims,nparsim))
+lambda <- data.frame(matrix(NA,nparsim,nsims))
+
+for (i in 1:nparsim){
+  for (j in 1:nsims){
+    
+    my.constants <- list(nyears = nyears, # UNSCALED
+                         rain = as.vector(rgamma(nyears,1.57396674,0.04298969)),
+                         temp = as.vector(rnorm(nyears,0.3836863,0.1118897)),
+                         ssta_b = as.vector(rnorm(nyears,-0.01683185,0.47938401)),
+                         ssta_m = as.vector(rnorm(nyears,-0.001235519,0.787513205))) 
+    my.constants$ssta_m_l <- as.vector(c(my.constants$ssta_m[2:nyears],rnorm(1,-0.001235519,0.787513205)))
+    
+    # extract parameter values
+    dem$asurv[i] <- runif(1, 0.63, 0.99)
+    dem$jsurv[i] <- runif(1, 0.01, 0.42)
+    dem$imm[i] <- runif(1, 0.01, 0.2)
+    dem$fec[i] <- runif(1, 0.03, 1)
+    
+    # inits = this is how you mess with the simulations!
+    initial.values = list(N1 = 12000, 
+                          Nimm = 10000,
+                          Nad = 120000,
+                          sigma.y = 22000,
+                          # random draws from uniform dists
+                          l.mphia = qlogis(dem$asurv[i]),
+                          l.mphij = qlogis(dem$jsurv[i]),
+                          l.mim = log(dem$imm[i]),
+                          l.mfec = log(dem$fec[i]),
+                          l.pj = qlogis(0.1),
+                          l.pa = qlogis(0.49),
+                          alpha1 = -0.01, alpha2 = 0.11, alpha3 = 0.16, alpha4 = 0.05, # UNSCALED VALS
+                          alpha5 = -0.82, alpha6 = 0.61,
+                          alpha7 = -0.78, alpha8 = 0.08, alpha9 = 0.29)
+    
+    # build model
+    peng.simModel2 <- nimbleModel(code = peng.ipm.imm.sim2,
+                                  constants = my.constants,
+                                  inits = initial.values)
+    
+    # identify nodes to simulate
+    nodesToSim <- peng.simModel2$getDependencies(c("N1[1]", "Nimm[1]", "Nad[1]", "sigma.y", "J",
+                                                   "alpha1", "alpha2", "alpha3", "alpha4", "alpha5", 
+                                                   "alpha6", "alpha7", "alpha8", "alpha9",
+                                                   "l.mphij", "l.mphia", "l.mfec", "l.mim", "l.pj", "l.pa"),
+                                                 self = F, downstream = T)
+    
+    # simulate
+    peng.simModel2$simulate(nodesToSim)
+    
+    pop[,j,i] <- peng.simModel2$Ntot
+    
+    # need to calculate lambda differently. rename 0s to 1s...
+    # and only calculate lambda prior to extinction
+    blah <- peng.simModel2$Ntot
+    yay <- match(0, blah) # get index of 0 value
+    if (is.na(yay)){
+      geomean <- peng.simModel2$geomean.lambda
+    } else{
+      blah[blah == 0] <- 1
+      bloop <- rep(NA, yay-1)
+      for (t in 1:(yay-1)){bloop[t] <- blah[t+1]/blah[t]}
+      l.bloop <- log(bloop)
+      geomean <- exp((1/(yay-1))*sum(l.bloop[1:(yay-1)]))
+    }
+    
+    lambda[i,j] <- geomean
+    #lambda[i,j] <- peng.simModel2$geomean.lambda
+    
+  }}
+
+##################################################################################################################
+
 #### 4) RUN SENSITIVITY ANALYSIS ON PRESS VS. PULSE
 # NOTE: can't be sure about this, but I think I can run these all at once
 # and then compare long-term change (mean, sd) to extreme vals (pct, mag)
 
 nyears <- 100 # number of years to run stochastic sims
 npars <- 8 # number of parameters to analyze
-nparsim <- 5 # number of parameter combinations (i.e., unique draws from distributions)
+nparsim <- 2 # number of parameter combinations (i.e., unique draws from distributions)
 nsims <- 5 # number of simulations per parameter combination
 
 # parameters
@@ -607,9 +695,13 @@ clim <- data.frame(matrix(NA,nparsim,npars))
 colnames(clim) <- c("rain_shape", "rain_rate", "temp_mean", "temp_sd",
                     "ssta_b_mean", "ssta_b_sd", "ssta_m_mean", "ssta_m_sd")
 
-ext <- data.frame(matrix(NA,nparsim,npars))
-colnames(ext) <- c("rain_freqECE", "rain_magECE", "temp_freqECE", "temp_magECE",
-                   "ssta_b_freqECE", "ssta_b_magECE", "ssta_m_freqECE", "ssta_m_magECE")
+global_ext <- data.frame(matrix(NA,nparsim,npars))
+colnames(global_ext) <- c("rain_freqECE", "rain_magECE", "temp_freqECE", "temp_magECE",
+                          "ssta_b_freqECE", "ssta_b_magECE", "ssta_m_freqECE", "ssta_m_magECE")
+
+local_ext <- data.frame(matrix(NA,nparsim,npars))
+colnames(local_ext) <- c("rain_freqECE", "rain_magECE", "temp_freqECE", "temp_magECE",
+                         "ssta_b_freqECE", "ssta_b_magECE", "ssta_m_freqECE", "ssta_m_magECE")
 
 # pop growth
 pop <- array(data = NA, dim = c(nyears,nsims,nparsim))
@@ -635,16 +727,16 @@ for (i in 1:nparsim){
     ssta_b_vals <- rnorm(10000, clim$ssta_b_mean[i], clim$ssta_b_sd[i])
     ssta_m_vals <- rnorm(10000, clim$ssta_m_mean[i], clim$ssta_m_sd[i])
     
-    # ECEs calculated from before based on distributions of data...95% quantiles
-    ext$rain_freqECE[i] <- sum(rain_vals >= 93.8)/10000
-    ext$rain_magECE[i] <- max(rain_vals)
-    ext$temp_freqECE[i] <- sum(temp_vals >= 0.5676631)/10000
-    ext$temp_magECE[i] <- max(temp_vals)
-    ext$ssta_b_freqECE[i] <- sum(ssta_b_vals >= 0.7713634)/10000
-    ext$ssta_b_magECE[i] <- max(ssta_b_vals)
-    ext$ssta_m_freqECE[i] <- sum(ssta_m_vals >= 1.293878)/10000
-    ext$ssta_m_magECE[i] <- max(ssta_m_vals)
-  
+    # GLOBAL ECEs calculated from before based on distributions of data...95% quantiles
+    global_ext$rain_freqECE[i] <- sum(rain_vals >= 93.8)/10000
+    global_ext$rain_magECE[i] <- max(rain_vals)
+    global_ext$temp_freqECE[i] <- sum(temp_vals >= 0.5676631)/10000
+    global_ext$temp_magECE[i] <- max(temp_vals)
+    global_ext$ssta_b_freqECE[i] <- sum(ssta_b_vals >= 0.7713634)/10000
+    global_ext$ssta_b_magECE[i] <- max(ssta_b_vals)
+    global_ext$ssta_m_freqECE[i] <- sum(ssta_m_vals >= 1.293878)/10000
+    global_ext$ssta_m_magECE[i] <- max(ssta_m_vals)
+    
     my.constants <- list(nyears = nyears, # UNSCALED
                          rain = as.vector(rgamma(nyears,clim$rain_shape[i],clim$rain_rate[i])),
                          temp = as.vector(rnorm(nyears,clim$temp_mean[i],clim$temp_sd[i])),
@@ -652,12 +744,15 @@ for (i in 1:nparsim){
                          ssta_m = as.vector(rnorm(nyears,clim$ssta_m_mean[i],clim$ssta_m_sd[i]))) 
     my.constants$ssta_m_l <- as.vector(c(my.constants$ssta_m[2:nyears],rnorm(1,clim$ssta_m_mean[i],clim$ssta_m_sd[i])))
     
-    # my.constants <- list(nyears = nyears, # UNSCALED
-    #                      rain = as.vector(rgamma(nyears,1.57396674,0.04298969)),
-    #                      temp = as.vector(rnorm(nyears,0.3836863,0.1118897)),
-    #                      ssta_b = as.vector(rnorm(nyears,-0.01683185,0.47938401)),
-    #                      ssta_m = as.vector(rnorm(nyears,-0.001235519,0.787513205))) 
-    # my.constants$ssta_m_l <- as.vector(c(my.constants$ssta_m[2:nyears],rnorm(1,-0.001235519,0.787513205)))
+    # LOCAL ECES calculated based on what penguins are experiencing
+    local_ext$rain_freqECE[i] <- sum(my.constants$rain >= 93.8)/nyears
+    local_ext$rain_magECE[i] <- max(my.constants$rain)
+    local_ext$temp_freqECE[i] <- sum(my.constants$temp >= 0.5676631)/nyears
+    local_ext$temp_magECE[i] <- max(my.constants$temp)
+    local_ext$ssta_b_freqECE[i] <- sum(my.constants$ssta_b >= 0.7713634)/nyears
+    local_ext$ssta_b_magECE[i] <- max(my.constants$ssta_b)
+    local_ext$ssta_m_freqECE[i] <- sum(my.constants$ssta_m >= 1.293878)/nyears
+    local_ext$ssta_m_magECE[i] <- max(my.constants$ssta_m)
     
     # inits = this is how you mess with the simulations!
     initial.values = list(N1 = 12000, 
