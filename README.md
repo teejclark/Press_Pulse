@@ -1,4 +1,4 @@
-# PressPulse
+# Press_Pulse
 
 This repository contains code needed to reproduce the results:
 
@@ -12,4 +12,4 @@ All analyses were done in `R`. The code to conduct the IPM is in the `Code` fold
 
 The code is released under the [CC-BY-4.0](https://opensource.org/licenses/mit-license.php).
 
-[![DOI](https://zenodo.org/badge/496767811.svg)](https://zenodo.org/badge/latestdoi/496767811)
+[![DOI](https://zenodo.org/badge/437058854.svg)](https://zenodo.org/badge/latestdoi/437058854)
